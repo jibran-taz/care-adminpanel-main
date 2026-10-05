@@ -729,7 +729,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth";
-import Logo from "@/assets/logo-DXWJtGXP.png";
+import Logo from "../assets/new-logo.png";
 interface SubMenuItem {
   name: string;
   href: string;
