@@ -82,6 +82,28 @@ const ViewUser = () => {
   const [isModalOpen, setIsModalOpen] = useState<{ modalOne: boolean }>({
     modalOne: false,
   });
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteUser = async () => {
+    if (!id) return;
+    try {
+      setIsDeleting(true);
+      await makeApiRequest(`${apiUrl.users}/${id}`, {
+        method: "DELETE",
+      });
+      notify({ message: "User deleted successfully", type: "success" });
+      navigate("/dashboard/users");
+    } catch (error: any) {
+      notify({
+        message: error?.response?.data?.message || "Failed to delete user",
+        type: "error",
+      });
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalOpen(false);
+    }
+  };
 
   // Formik for Suspend User
   const suspendFormik = useFormik({
@@ -271,11 +293,19 @@ const ViewUser = () => {
               <UserIcon className="mr-2 h-4 w-4" />
               Suspend User
             </Button>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/dashboard/users/${user.id}/edit`)}
+            >
               <Edit className="mr-2 h-4 w-4" />
               Edit
             </Button>
-            <Button variant="destructive" size="sm">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setIsDeleteModalOpen(true)}
+            >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </Button>
@@ -688,6 +718,43 @@ const ViewUser = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Delete User Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title="Delete User"
+        showFooter={false}
+        width="max-w-md"
+      >
+        <div className="space-y-4 pt-2">
+          <div className="text-center">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete user{" "}
+              <strong className="text-foreground">
+                {user?.full_name || user?.email}
+              </strong>
+              ? This action <span className="text-red-600 font-medium">cannot be undone</span>.
+            </p>
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteModalOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteUser}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "Deleting..." : "Yes, Delete"}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </>
   );
