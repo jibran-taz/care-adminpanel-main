@@ -14,6 +14,7 @@ import Users from "./pages/users";
 import ViewUser from "./pages/users/view-user";
 import ProtectedRoute from "./routes/protected-route";
 import CreateUser from "./pages/users/create-user";
+import EditUser from "./pages/users/edit-user";
 import JobListing from "./pages/job-listing";
 import ViewJobListing from "./pages/job-listing/view-listing";
 import DashboardBooking from "./pages/bookings/dashboard";
@@ -136,6 +137,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <ViewUser />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="users/:id/edit"
+                element={
+                  <ProtectedRoute>
+                    <EditUser />
                   </ProtectedRoute>
                 }
               />
