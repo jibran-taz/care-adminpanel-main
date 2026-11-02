@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +39,17 @@ import ToggleSwitch from "@/components/ui/toggle-switch";
 import { apiUrl } from "@/services/api-end-point";
 import makeApiRequest from "@/services/axios";
 import { formatDate, notify } from "@/utils/utils";
-import { ChevronDown, Eye, Pencil, Trash2, User } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckSquare,
+  ChevronDown,
+  Eye,
+  Loader2,
+  Pencil,
+  Trash2,
+  User,
+  XSquare,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
@@ -69,7 +80,7 @@ export default function Users() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // ✅ Get filter from URL
-  const urlUserType = searchParams.get('user_type') || 'all';
+  const urlUserType = searchParams.get("user_type") || "all";
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCity, setFilterCity] = useState("");
@@ -88,12 +99,46 @@ export default function Users() {
   const [loadingStates, setLoadingStates] = useState<Record<number, boolean>>({});
   const [isLoading, setIsLoading] = useState(false);
 
-  // Delete modal state
+  // Selection states
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+
+  // Single Delete modal state
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     user: User | null;
   }>({ open: false, user: null });
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Bulk Delete modal state
+  const [bulkDeleteModal, setBulkDeleteModal] = useState<{
+    open: boolean;
+    all: boolean;
+    count: number;
+  }>({ open: false, all: false, count: 0 });
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
+
+  // Filter non-admin users for selection (admins cannot be deleted)
+  const nonAdminUsers = apiData.users.filter((u) => u.user_type !== "admin");
+  const isAllSelected =
+    nonAdminUsers.length > 0 &&
+    nonAdminUsers.every((u) => selectedUserIds.includes(u.id));
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedUserIds(nonAdminUsers.map((u) => u.id));
+    } else {
+      setSelectedUserIds([]);
+    }
+  };
+
+  const handleToggleSelect = (userId: number) => {
+    setSelectedUserIds((prev) =>
+      prev.includes(userId)
+        ? prev.filter((id) => id !== userId)
+        : [...prev, userId]
+    );
+  };
 
   const handleDeleteUser = async () => {
     if (!deleteModal.user) return;
@@ -105,6 +150,7 @@ export default function Users() {
 
       notify({ message: "User deleted successfully", type: "success" });
 
+      setSelectedUserIds((prev) => prev.filter((id) => id !== deleteModal.user!.id));
       setApiData((prev) => ({
         ...prev,
         users: prev.users.filter((u) => u.id !== deleteModal.user!.id),
@@ -118,6 +164,62 @@ export default function Users() {
       });
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleExecuteBulkDelete = async () => {
+    const idsToDelete = bulkDeleteModal.all
+      ? nonAdminUsers.map((u) => u.id)
+      : selectedUserIds;
+
+    if (idsToDelete.length === 0) return;
+
+    try {
+      setIsBulkDeleting(true);
+      setDeleteProgress({ current: 0, total: idsToDelete.length });
+
+      let successCount = 0;
+      for (let i = 0; i < idsToDelete.length; i++) {
+        const id = idsToDelete[i];
+        try {
+          await makeApiRequest(`${apiUrl.users}/${id}`, {
+            method: "DELETE",
+          });
+          successCount++;
+        } catch (err) {
+          console.error(`Failed to delete user ID ${id}:`, err);
+        }
+        setDeleteProgress({ current: i + 1, total: idsToDelete.length });
+      }
+
+      notify({
+        message: `Successfully deleted ${successCount} user(s)`,
+        type: "success",
+      });
+
+      setSelectedUserIds([]);
+      setBulkDeleteModal({ open: false, all: false, count: 0 });
+
+      // Refresh list
+      const apiRole = filterRole === "all" ? "" : filterRole;
+      const apiStatus = filterStatus === "all" ? "" : filterStatus;
+      await fetchUsers(
+        apiData.pagination?.current_page || 1,
+        perPage,
+        apiRole,
+        apiStatus,
+        searchTerm,
+        filterCity,
+        filterState,
+        filterDesiredRole === "all" ? "" : filterDesiredRole
+      );
+    } catch (error: any) {
+      notify({
+        message: error?.response?.data?.message || "Failed to complete bulk delete",
+        type: "error",
+      });
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -136,7 +238,6 @@ export default function Users() {
 
       let url = `${apiUrl.users}?page=${page}&per_page=${itemsPerPage}`;
 
-      // ✅ Add user_type filter
       if (role && role !== "all") {
         url += `&user_type=${role}`;
       }
@@ -249,13 +350,13 @@ export default function Users() {
   const handleRoleFilterChange = async (role: string) => {
     setFilterRole(role);
 
-    // Update URL params
     if (role === "all") {
-      searchParams.delete('user_type');
+      searchParams.delete("user_type");
     } else {
-      searchParams.set('user_type', role);
+      searchParams.set("user_type", role);
     }
     setSearchParams(searchParams);
+    setSelectedUserIds([]);
 
     const apiRole = role === "all" ? "" : role;
     const apiStatus = filterStatus === "all" ? "" : filterStatus;
@@ -264,6 +365,7 @@ export default function Users() {
 
   const handleStatusFilterChange = async (status: string) => {
     setFilterStatus(status);
+    setSelectedUserIds([]);
     const apiRole = filterRole === "all" ? "" : filterRole;
     const apiStatus = status === "all" ? "" : status;
     await fetchUsers(1, perPage, apiRole, apiStatus, searchTerm, filterCity, filterState, filterDesiredRole === "all" ? "" : filterDesiredRole);
@@ -294,6 +396,7 @@ export default function Users() {
     if (page < 1 || !apiData.pagination || page > apiData.pagination.last_page)
       return;
 
+    setSelectedUserIds([]);
     const apiRole = filterRole === "all" ? "" : filterRole;
     const apiStatus = filterStatus === "all" ? "" : filterStatus;
     fetchUsers(page, perPage, apiRole, apiStatus, searchTerm, filterCity, filterState, filterDesiredRole === "all" ? "" : filterDesiredRole);
@@ -302,6 +405,7 @@ export default function Users() {
 
   const handlePerPageChange = (value: number) => {
     setPerPage(value);
+    setSelectedUserIds([]);
     const apiRole = filterRole === "all" ? "" : filterRole;
     const apiStatus = filterStatus === "all" ? "" : filterStatus;
     fetchUsers(1, value, apiRole, apiStatus, searchTerm, filterCity, filterState, filterDesiredRole === "all" ? "" : filterDesiredRole);
@@ -309,32 +413,87 @@ export default function Users() {
 
   // ✅ Initial load - runs when URL params change
   useEffect(() => {
-    // Update filterRole if URL changed
     if (urlUserType !== filterRole) {
       setFilterRole(urlUserType);
     }
-
-    // Fetch with URL params
+    setSelectedUserIds([]);
     const apiRole = urlUserType === "all" ? "" : urlUserType;
     fetchUsers(1, perPage, apiRole, "");
   }, [urlUserType]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Users</h1>
           <p className="text-muted-foreground">
-            Manage your users and their permissions
+            Manage your users, workers, employers and their permissions
           </p>
         </div>
-        <Link to="/dashboard/create-user">
-          <Button className="bg-gradient-to-r from-green-500 to-emerald-600">
-            <User className="mr-2 h-4 w-4" />
-            Add User
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {nonAdminUsers.length > 0 && (
+            <Button
+              variant="destructive"
+              onClick={() =>
+                setBulkDeleteModal({
+                  open: true,
+                  all: true,
+                  count: nonAdminUsers.length,
+                })
+              }
+              className="bg-red-600 hover:bg-red-700"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete All ({nonAdminUsers.length})
+            </Button>
+          )}
+
+          <Link to="/dashboard/create-user">
+            <Button className="bg-gradient-to-r from-green-500 to-emerald-600">
+              <User className="mr-2 h-4 w-4" />
+              Add User
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      {/* Floating Selection Banner */}
+      {selectedUserIds.length > 0 && (
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-200 text-blue-900 px-4 py-3 rounded-lg shadow-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <CheckSquare className="h-5 w-5 text-blue-600" />
+            <span>
+              <strong>{selectedUserIds.length}</strong> user(s) selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedUserIds([])}
+              className="bg-white hover:bg-gray-50 text-gray-700"
+            >
+              <XSquare className="mr-1 h-4 w-4" />
+              Clear
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() =>
+                setBulkDeleteModal({
+                  open: true,
+                  all: false,
+                  count: selectedUserIds.length,
+                })
+              }
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete Selected ({selectedUserIds.length})
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -449,6 +608,13 @@ export default function Users() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[45px]">
+                    <Checkbox
+                      checked={isAllSelected}
+                      onCheckedChange={handleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
                   <TableHead>User / Business</TableHead>
                   <TableHead>Role / Desired</TableHead>
                   <TableHead>City</TableHead>
@@ -463,6 +629,9 @@ export default function Users() {
                   <>
                     {Array.from({ length: 5 }).map((_, index) => (
                       <TableRow key={index}>
+                        <TableCell>
+                          <Skeleton className="h-4 w-4" />
+                        </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-3">
                             <Skeleton className="h-8 w-8 rounded-full" />
@@ -497,83 +666,116 @@ export default function Users() {
                 ) : (
                   <>
                     {apiData?.users?.length > 0 ? (
-                      apiData.users.map((user) => (
-                        <TableRow key={user.id} className="hover:bg-muted/50">
-                          <TableCell>
-                            <div className="flex items-center space-x-3">
-                              <div className="h-8 w-8 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 flex items-center justify-center">
-                                <span className="text-xs font-medium text-primary-foreground">
-                                  {user?.full_name
-                                    ?.split(" ")
-                                    .map((n) => n[0])
-                                    .join("") || "U"}
+                      apiData.users.map((user) => {
+                        const isSelected = selectedUserIds.includes(user.id);
+                        return (
+                          <TableRow
+                            key={user.id}
+                            className={
+                              isSelected ? "bg-blue-50/60" : "hover:bg-muted/50"
+                            }
+                          >
+                            <TableCell>
+                              {user.user_type !== "admin" ? (
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => handleToggleSelect(user.id)}
+                                  aria-label={`Select ${user.full_name}`}
+                                />
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground font-semibold">
+                                  ADMIN
                                 </span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center space-x-3">
+                                <div className="h-8 w-8 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 flex items-center justify-center">
+                                  <span className="text-xs font-medium text-primary-foreground">
+                                    {user?.full_name
+                                      ?.split(" ")
+                                      .map((n) => n[0])
+                                      .join("") || "U"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <div className="font-medium">{user.full_name}</div>
+                                  {user.business_name && (
+                                    <div className="text-xs text-blue-600 font-semibold italic">
+                                      {user.business_name}
+                                    </div>
+                                  )}
+                                  <div className="text-sm text-muted-foreground">
+                                    {user.email}
+                                  </div>
+                                </div>
                               </div>
-                              <div>
-                                <div className="font-medium">{user.full_name}</div>
-                                {user.business_name && (
-                                  <div className="text-xs text-blue-600 font-semibold italic">
-                                    {user.business_name}
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <Badge variant="outline" className="capitalize">
+                                  {user.user_type === "provider"
+                                    ? "Worker"
+                                    : user.user_type === "client"
+                                    ? "Employer"
+                                    : user.user_type}
+                                </Badge>
+                                {user.desired_role && (
+                                  <div className="text-[10px] text-muted-foreground bg-slate-100 px-1 rounded inline-block ml-1">
+                                    {user.desired_role}
                                   </div>
                                 )}
-                                <div className="text-sm text-muted-foreground">
-                                  {user.email}
-                                </div>
                               </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="space-y-1">
-                              <Badge variant="outline" className="capitalize">
-                                {user.user_type === "provider" ? "Worker" : user.user_type === "client" ? "Employer" : user.user_type}
-                              </Badge>
-                              {user.desired_role && (
-                                <div className="text-[10px] text-muted-foreground bg-slate-100 px-1 rounded inline-block ml-1">
-                                  {user.desired_role}
-                                </div>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {user.city || "N/A"}
-                          </TableCell>
-                          <TableCell>{getStatusBadge(user.status)}</TableCell>
-                          <TableCell>
-                            <ToggleSwitch
-                              enabled={user.is_verified || false}
-                              onChange={() =>
-                                handleVerifyToggle(user.id, user.is_verified)
-                              }
-                              disabled={loadingStates[user.id]}
-                            />
-                          </TableCell>
-                          <TableCell className="text-muted-foreground whitespace-nowrap">
-                            {formatDate(user.created_at)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex gap-2 justify-end cursor-pointer">
-                              <Pencil
-                                size={15}
-                                className="hover:text-blue-600 transition-colors"
-                                onClick={() => navigate(`/dashboard/users/${user.id}/edit`)}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {user.city || "N/A"}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(user.status)}</TableCell>
+                            <TableCell>
+                              <ToggleSwitch
+                                enabled={user.is_verified || false}
+                                onChange={() =>
+                                  handleVerifyToggle(user.id, user.is_verified)
+                                }
+                                disabled={loadingStates[user.id]}
                               />
-                              <Eye
-                                size={15}
-                                className="hover:text-green-600 transition-colors"
-                                onClick={() => navigate(`/dashboard/users/${user.id}`)}
-                              />
-                              <Trash2
-                                size={15}
-                                className="hover:text-red-600 transition-colors"
-                                onClick={() => setDeleteModal({ open: true, user })}
-                              />
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
+                            </TableCell>
+                            <TableCell className="text-muted-foreground whitespace-nowrap">
+                              {formatDate(user.created_at)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex gap-2 justify-end cursor-pointer">
+                                <Pencil
+                                  size={15}
+                                  className="hover:text-blue-600 transition-colors"
+                                  onClick={() =>
+                                    navigate(`/dashboard/users/${user.id}/edit`)
+                                  }
+                                />
+                                <Eye
+                                  size={15}
+                                  className="hover:text-green-600 transition-colors"
+                                  onClick={() =>
+                                    navigate(`/dashboard/users/${user.id}`)
+                                  }
+                                />
+                                {user.user_type !== "admin" && (
+                                  <Trash2
+                                    size={15}
+                                    className="hover:text-red-600 transition-colors"
+                                    onClick={() =>
+                                      setDeleteModal({ open: true, user })
+                                    }
+                                  />
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-12">
+                        <TableCell colSpan={8} className="text-center py-12">
                           <p className="text-muted-foreground">No users found</p>
                         </TableCell>
                       </TableRow>
@@ -600,7 +802,7 @@ export default function Users() {
         </CardContent>
       </Card>
 
-      {/* Delete Confirmation Modal */}
+      {/* Single Delete Confirmation Modal */}
       <Modal
         isOpen={deleteModal.open}
         onClose={() => !isDeleting && setDeleteModal({ open: false, user: null })}
@@ -632,6 +834,82 @@ export default function Users() {
               disabled={isDeleting}
             >
               {isDeleting ? "Deleting..." : "Yes, Delete"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bulk / Delete All Confirmation Modal */}
+      <Modal
+        isOpen={bulkDeleteModal.open}
+        onClose={() =>
+          !isBulkDeleting &&
+          setBulkDeleteModal({ open: false, all: false, count: 0 })
+        }
+        title={bulkDeleteModal.all ? "Delete All Non-Admin Users" : "Delete Selected Users"}
+        showFooter={false}
+        width="max-w-md"
+      >
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center gap-3 p-3 bg-red-50 text-red-800 rounded-lg border border-red-200">
+            <AlertTriangle className="h-6 w-6 text-red-600 shrink-0" />
+            <p className="text-sm">
+              {bulkDeleteModal.all
+                ? `You are about to delete ALL ${bulkDeleteModal.count} non-admin user(s) (workers & employers). Primary Admin account will be preserved.`
+                : `You are about to delete ${bulkDeleteModal.count} selected user(s).`}
+            </p>
+          </div>
+
+          <p className="text-sm text-center text-muted-foreground">
+            This action <span className="text-red-600 font-semibold">cannot be undone</span>.
+          </p>
+
+          {isBulkDeleting && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Deleting records...</span>
+                <span>
+                  {deleteProgress.current} / {deleteProgress.total}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-red-600 h-2 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${
+                      deleteProgress.total > 0
+                        ? (deleteProgress.current / deleteProgress.total) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-end pt-2">
+            <Button
+              variant="outline"
+              onClick={() =>
+                setBulkDeleteModal({ open: false, all: false, count: 0 })
+              }
+              disabled={isBulkDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleExecuteBulkDelete}
+              disabled={isBulkDeleting}
+            >
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                `Yes, Delete (${bulkDeleteModal.count})`
+              )}
             </Button>
           </div>
         </div>
