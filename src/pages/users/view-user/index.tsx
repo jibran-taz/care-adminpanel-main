@@ -14,6 +14,8 @@ import {
   Edit,
   Trash2,
   FileText,
+  Check,
+  X,
   ExternalLink,
 } from "lucide-react";
 import {
@@ -86,6 +88,64 @@ const ViewUser = () => {
   });
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [docActionLoadingId, setDocActionLoadingId] = useState<number | null>(null);
+  const [rejectDocModal, setRejectDocModal] = useState<{ open: boolean; doc: any | null }>({
+    open: false,
+    doc: null,
+  });
+  const [docRejectReason, setDocRejectReason] = useState("");
+
+  const handleApproveDocument = async (docId: number) => {
+    try {
+      setDocActionLoadingId(docId);
+      await makeApiRequest(`/admin/documents/${docId}/approve`, {
+        method: "PUT",
+      });
+      notify({ message: "Document approved successfully", type: "success" });
+      setDocuments((prev: any[]) =>
+        prev.map((d) => (d.id === docId ? { ...d, verification_status: "approved" } : d))
+      );
+    } catch (error: any) {
+      notify({
+        message: error?.response?.data?.message || "Failed to approve document",
+        type: "error",
+      });
+    } finally {
+      setDocActionLoadingId(null);
+    }
+  };
+
+  const handleRejectDocument = async () => {
+    if (!rejectDocModal.doc?.id) return;
+    if (!docRejectReason.trim() || docRejectReason.trim().length < 5) {
+      notify({ message: "Please provide a valid rejection reason (at least 5 characters)", type: "error" });
+      return;
+    }
+    try {
+      setDocActionLoadingId(rejectDocModal.doc.id);
+      await makeApiRequest(`/admin/documents/${rejectDocModal.doc.id}/reject`, {
+        method: "PUT",
+        data: { reason: docRejectReason },
+      });
+      notify({ message: "Document rejected", type: "success" });
+      setDocuments((prev: any[]) =>
+        prev.map((d) =>
+          d.id === rejectDocModal.doc.id
+            ? { ...d, verification_status: "rejected", rejection_reason: docRejectReason }
+            : d
+        )
+      );
+      setRejectDocModal({ open: false, doc: null });
+      setDocRejectReason("");
+    } catch (error: any) {
+      notify({
+        message: error?.response?.data?.message || "Failed to reject document",
+        type: "error",
+      });
+    } finally {
+      setDocActionLoadingId(null);
+    }
+  };
 
   const handleDeleteUser = async () => {
     if (!id) return;
@@ -661,23 +721,60 @@ const ViewUser = () => {
                                     {doc.verification_status}
                                   </Badge>
                                 )}
+                                {doc.verification_status === "rejected" && doc.rejection_reason && (
+                                  <span className="text-xs text-red-500 italic">
+                                    Reason: {doc.rejection_reason}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
-                          {docUrl ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => window.open(docUrl, "_blank")}
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                              View
-                            </Button>
-                          ) : (
-                            <Button variant="outline" size="sm" disabled>
-                              No File
-                            </Button>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {docUrl ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => window.open(docUrl, "_blank")}
+                              >
+                                <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                                View
+                              </Button>
+                            ) : (
+                              <Button variant="outline" size="sm" disabled>
+                                No File
+                              </Button>
+                            )}
+
+                            {doc.id && doc.verification_status !== "approved" && (
+                              <Button
+                                size="sm"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                disabled={docActionLoadingId === doc.id}
+                                onClick={() => handleApproveDocument(doc.id)}
+                              >
+                                {docActionLoadingId === doc.id ? (
+                                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <>
+                                    <Check className="h-3.5 w-3.5 mr-1" />
+                                    Approve
+                                  </>
+                                )}
+                              </Button>
+                            )}
+
+                            {doc.id && doc.verification_status !== "rejected" && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                disabled={docActionLoadingId === doc.id}
+                                onClick={() => setRejectDocModal({ open: true, doc })}
+                              >
+                                <X className="h-3.5 w-3.5 mr-1" />
+                                Reject
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -761,6 +858,58 @@ const ViewUser = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Reject Document Modal */}
+      <Modal
+        isOpen={rejectDocModal.open}
+        onClose={() => {
+          setRejectDocModal({ open: false, doc: null });
+          setDocRejectReason("");
+        }}
+        title="Reject Document"
+        showFooter={false}
+        width="max-w-md"
+      >
+        <div className="space-y-4 pt-2">
+          <p className="text-sm text-muted-foreground">
+            You are rejecting <strong>{rejectDocModal.doc?.document_name || rejectDocModal.doc?.name || "Document"}</strong> for{" "}
+            <strong>{user?.full_name}</strong>. Please provide a reason for the worker:
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="doc_reject_reason" className="text-sm font-medium">
+              Rejection Reason <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="doc_reject_reason"
+              placeholder="e.g. Expired ID, blurry image, document unreadable... (minimum 5 characters)"
+              value={docRejectReason}
+              onChange={(e) => setDocRejectReason(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setRejectDocModal({ open: false, doc: null });
+                setDocRejectReason("");
+              }}
+              disabled={docActionLoadingId === rejectDocModal.doc?.id}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleRejectDocument}
+              disabled={docActionLoadingId === rejectDocModal.doc?.id || !docRejectReason.trim()}
+            >
+              {docActionLoadingId === rejectDocModal.doc?.id ? "Rejecting..." : "Reject Document"}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Delete User Modal */}
