@@ -265,7 +265,8 @@ const AllJobs = () => {
   };
 
   const handleDownloadResume = (resumePath: string, applicantName: string) => {
-    window.open(`https://care-storage-app.s3.us-east-1.amazonaws.com/${resumePath}`, "_blank");
+    const url = resumePath.startsWith("http") ? resumePath : `https://api.qualitycaretemps.com/storage/${resumePath}`;
+    window.open(url, "_blank");
     notify({
       message: `Downloading resume for ${applicantName}`,
       type: "success",
@@ -273,7 +274,8 @@ const AllJobs = () => {
   };
 
   const handleViewVideo = (videoPath: string) => {
-    window.open(`https://care-storage-app.s3.us-east-1.amazonaws.com/${videoPath}`, "_blank");
+    const url = videoPath.startsWith("http") ? videoPath : `https://api.qualitycaretemps.com/storage/${videoPath}`;
+    window.open(url, "_blank");
   };
 
   const filteredApplications = applications.filter((app) => {
