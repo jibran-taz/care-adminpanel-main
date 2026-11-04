@@ -13,6 +13,8 @@ import {
   XCircle,
   Edit,
   Trash2,
+  FileText,
+  ExternalLink,
 } from "lucide-react";
 import {
   Card,
@@ -622,22 +624,63 @@ const ViewUser = () => {
               <CardContent>
                 {documents.length > 0 ? (
                   <div className="space-y-3">
-                    {documents.map((doc, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-3 border rounded-lg"
-                      >
-                        <div>
-                          <p className="text-sm font-medium">{doc.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {doc.type}
-                          </p>
+                    {documents.map((doc: any, index: number) => {
+                      const docName = doc.document_name || doc.name || "Document";
+                      const docType = (doc.document_type || doc.type || "Other").replace(/_/g, " ");
+                      const docUrl = doc.document_url || (doc.document_path ? (
+                        doc.document_path.startsWith("http")
+                          ? doc.document_path
+                          : "https://api.qualitycaretemps.com/storage/" + doc.document_path.replace(/^\/+/, "")
+                      ) : null);
+
+                      return (
+                        <div
+                          key={doc.id || index}
+                          className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-primary/10 rounded-lg text-primary">
+                              <FileText className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{docName}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-muted-foreground capitalize">
+                                  {docType}
+                                </span>
+                                {doc.verification_status && (
+                                  <Badge
+                                    className={`text-[10px] px-1.5 py-0 capitalize ${
+                                      doc.verification_status === "approved" || doc.verification_status === "verified"
+                                        ? "bg-green-100 text-green-800"
+                                        : doc.verification_status === "rejected"
+                                        ? "bg-red-100 text-red-800"
+                                        : "bg-yellow-100 text-yellow-800"
+                                    }`}
+                                  >
+                                    {doc.verification_status}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {docUrl ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(docUrl, "_blank")}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                              View
+                            </Button>
+                          ) : (
+                            <Button variant="outline" size="sm" disabled>
+                              No File
+                            </Button>
+                          )}
                         </div>
-                        <Button variant="outline" size="sm">
-                          View
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
